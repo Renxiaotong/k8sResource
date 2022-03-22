@@ -1,6 +1,13 @@
+#This is the resource file to realize the dynamic and static separation of nginx and PHP
 
-#pv
-###
+#Nginx and PHP share available program segments through NFS
+
+#Load balancing built through service
+
+#Publish to EIP using ingress
+
+
+#pvconfig
 ---
 kind: PersistentVolume
 apiVersion: v1
@@ -38,7 +45,6 @@ spec:
 
 #php deployment
 #it's use to define php config and php pvc and php log
-###
 ---
 kind: Deployment
 apiVersion: apps/v1

@@ -7,22 +7,22 @@
 #Publish to EIP using ingress
 
 
-#pvconfig
+#pv
 ---
 kind: PersistentVolume
 apiVersion: v1
 metadata:
-        name: pv-nginx-php
+       name: pv-nfs
 spec:
-        volumeMode: Filesystem
-        capacity:
+       volumeMode: Filesystem
+       capacity:
                 storage: 30Gi
-        accessModes:
-        - ReadWriteOnce
-        - ReadOnlyMany
-        - ReadWriteMany
-        persistentVolumeReclaimPolicy: Retain
-        nfs:
+       accessModes:
+       - ReadOnlyMany
+       - ReadWriteMany
+       - ReadWriteOnce
+       persistentVolumeReclaimPolicy: Retain
+       nfs:
                 server: 192.168.1.100
                 path: /var/webhtml
 
@@ -31,161 +31,148 @@ spec:
 kind: PersistentVolumeClaim
 apiVersion: v1
 metadata:
-        name: pvc-nginx-php
+  name: pvc-nfs
 spec:
-        volumeMode: Filesystem
-        accessModes:
-        - ReadWriteMany
-        resources:
-                requests:
-                        storage: 25Gi
-#php configMap
-#kubectl create configMap php-conf --from-file="/var/webconf/www.conf"
+  volumeMode: Filesystem
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 25Gi
 
-
-#php deployment
-#it's use to define php config and php pvc and php log
+#php-deployment
 ---
 kind: Deployment
 apiVersion: apps/v1
 metadata:
-        name: php
+  name: php-deployment
 spec:
-        selector:
-                matchLabels:
-                        app: php
-        replicas: 3
-        template:
-                metadata:
-                        labels:
-                                app: php
-                spec:
-                        volumes:
-                        - name: conf-for-php
-                          configMap:
-                                name: php-conf
-                        - name: pvc-for-php
-                          persistentVolumeClaim:
-                                claimName: pvc-nginx-php
-                        containers:
-                        - name: php-container
-                          image: 192.168.1.100:5000/myos:php-fpm
-                          volumeMounts:
-                          #- name: conf-for-php
-                           # subPath: www.conf
-                            #mountPath: /etc/php-fpm.d/www.conf
-                          - name: pvc-for-php
-                            mountPath: /usr/local/nginx/html
-                          stdin: false
-                          tty: false
-                          ports:
-                          - containerPort: 9000
-                            protocol: TCP
-                          resources:
-                                requests:
-                                        cpu: 200m
-                        restartPolicy: Always
+  selector:
+    matchLabels:
+      app: php
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: php
+    spec:
+      volumes:
+      - name: pvc-for-php
+        persistentVolumeClaim:
+          claimName: pvc-nfs
+      - name: conf-for-php
+        configMap:
+          name: php-conf
+      containers:
+      - name: php-container
+        image: 192.168.1.100:5000/myos:php-fpm
+        volumeMounts:
+        - name: conf-for-php
+          subPath: www.conf
+          mountPath: /etc/php-fpm.d/www.conf
+        - name: pvc-for-php
+          mountPath: /usr/local/nginx/html
+        stdin: false
+        tty: false
+        ports:
+        - containerPort: 9000
+          protocol: TCP
+      restartPolicy: Always
+#php-service
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: php-service
+spec:
+  ports:
+  - protocol: TCP
+    port: 9000
+    targetPort: 9000
+  selector:
+    app: php
+  type: ClusterIP
 
-#php for control
+#pha
 ---
 kind: HorizontalPodAutoscaler
 apiVersion: autoscaling/v1
 metadata:
-        name: php
+  name: php-pha
 spec:
-        minReplicas: 1
-        maxReplicas: 5
-        scaleTargetRef:
-                apiVersion: apps/v1
-                kind: Deployment
-                name: php
-        targetCPUUtilizationPercentage: 50
+  minReplicas: 1
+  maxReplicas: 3
+  scaleTargetRef:
+    kind: Deployment
+    apiVersion: apps/v1
+    name: php-deployment
+  targetCPUUtilizationPercentage: 50
 
-
-
-#service cluster                IP for php
----
-kind: Service
-apiVersion: v1
-metadata:
-        name: php-service
-spec:
-        ports:
-        - port: 9000
-          targetPort: 9000
-        selector:
-                app: php
-        type: ClusterIP
-
-#nginx configMap
-#kubectl create configMap nginx-conf --from-file="/var/webconf/nginx.conf"
-
-#nginx deploment
+#nginx-deployment
 ---
 kind: Deployment
 apiVersion: apps/v1
 metadata:
-        name: nginx
+  name: nginx-deployment
 spec:
-        selector:
-                matchLabels:
-                        app: nginx
-        replicas: 1
-        template:
-                metadata:
-                        labels:
-                                app: nginx
-                spec:
-                        volumes:
-                        - name: conf-for-nginx
-                          configMap:
-                                name: nginx-conf
-                        - name: log-for-nginx
-                          emptyDir: {}
-                        - name: pvc-for-nginx
-                          persistentVolumeClaim:
-                                claimName: pvc-nginx-php
-                        containers:
-                        - name: nginx-container
-                          image: 192.168.1.100:5000/myos:nginx
-                          volumeMounts:
-                          - name: log-for-nginx
-                            mountPath: /usr/local/nginx/logs
-                          - name: conf-for-nginx
-                            subPath: nginx.conf
-                            mountPath: /usr/local/nginx/conf/nginx.conf
-                          - name: pvc-for-nginx
-                            mountPath: /usr/local/nginx/html
-                          stdin: false
-                          tty: false
-                          ports:
-                          - containerPort: 80
-                            protocol: TCP
-                        restartPolicy: Always
+  selector:
+    matchLabels:
+      app: nginx
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      volumes:
+      - name: pvc-for-nginx
+        persistentVolumeClaim:
+          claimName: pvc-nfs
+      - name: conf-for-nginx
+        configMap:
+          name: nginx-conf
+      containers:
+      - name: nginx-container
+        image: 192.168.1.100:5000/myos:nginx
+        volumeMounts:
+        - name: conf-for-nginx
+          subPath: nginx.conf
+          mountPath: /usr/local/nginx/conf/nginx.conf
+        - name: pvc-for-nginx
+          mountPath: /usr/local/nginx/html
+        stdin: false
+        tty: false
+        ports:
+        - containerPort: 80
+          protocol: TCP
+      restartPolicy: Always
 
-#clusterIP for nginx
+
+#nginx-service
 ---
 kind: Service
 apiVersion: v1
 metadata:
-        name: nginx-service
+  name: nginx-service
 spec:
-        ports:
-        - port: 80
-          targetPort: 80
-        selector:
-                app: nginx
-        type: ClusterIP
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+  selector:
+    app: nginx
+  type: ClusterIP
 
-#ingress for web(nginx+php)
+
+#ingress
 ---
 kind: Ingress
 apiVersion: extensions/v1beta1
 metadata:
-        name: webcluster
-        annotations:
-                kubernetes.io/ingress.class: "nginx"
+  name: web
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
 spec:
-        backend:
-                serviceName: nginx-service
-                servicePort: 80
+   backend:
+    serviceName: nginx-service
+    servicePort: 80
